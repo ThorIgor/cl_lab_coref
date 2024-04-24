@@ -1,0 +1,22 @@
+preprocess:
+  cmd: python -m weasel run preprocess
+  script:
+    - python scripts/preprocess.py assets/train.jsonl corpus/train.spacy
+    - python scripts/preprocess.py assets/dev.jsonl corpus/dev.spacy
+    - python scripts/preprocess.py assets/test.jsonl corpus/test.spacy
+  deps:
+    - path: assets/train.jsonl
+      md5: 33bdbf6af538cc8a6e845ee15352ce79
+    - path: assets/dev.jsonl
+      md5: 1d348c8304bc7376c4a4c521029f5f45
+    - path: assets/test.jsonl
+      md5: aabf8a32e36c5a3e816de6e1371bfac3
+    - path: scripts/preprocess.py
+      md5: 701117249a9cbf928a430ac7379a4369
+  outs:
+    - path: corpus/train.spacy
+      md5: 40842cbd56df4903361f30cb8d4d6109
+    - path: corpus/dev.spacy
+      md5: 5ae5e3fd96f5f6233878a21b5117b77b
+    - path: corpus/test.spacy
+      md5: 851ad1cdda7da14d280f6c4cd3ba2de9

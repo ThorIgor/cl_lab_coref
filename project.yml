@@ -1,0 +1,109 @@
+title: "Training a spaCy Coref Model"
+description: |
+  This project trains a coreference model for spaCy using OntoNotes.
+
+vars:
+  # XXX Change to your actual GPU ID
+  gpu_id: 0
+
+  max_epochs: 20
+
+  # Changed in testing to use CPU configs
+  config_dir: configs/test/
+
+  heads: silver
+
+  # conll training data split files
+  train: assets/train.jsonl
+  dev: assets/dev.jsonl
+  test: assets/test.jsonl
+
+directories: ["assets", "corpus", "scripts", "configs", "training"]
+
+workflows:
+  prep:
+    - preprocess
+  train:
+    - train-cluster
+    - prep-span-data
+    - train-span-resolver
+    - assemble
+
+  all:
+    # prep
+    - preprocess
+    # train
+    - train-cluster
+    - prep-span-data
+    - train-span-resolver
+    - assemble
+    # eval
+    - eval
+
+commands:
+  - name: "preprocess"
+    help: "Convert the data to spaCy's format"
+    deps:
+      - ${vars.train}
+      - ${vars.dev}
+      - ${vars.test}
+      - scripts/preprocess.py
+    script:
+      - python scripts/preprocess.py ${vars.train} corpus/train.spacy
+      - python scripts/preprocess.py ${vars.dev} corpus/dev.spacy
+      - python scripts/preprocess.py ${vars.test} corpus/test.spacy
+    outputs:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - corpus/test.spacy
+
+  - name: "train-cluster"
+    help: "Train the clustering component"
+    script: 
+      - "python -m spacy train ${vars.config_dir}/cluster.cfg -g ${vars.gpu_id} --paths.train corpus/train.spacy --paths.dev corpus/dev.spacy -o training/cluster --training.max_epochs ${vars.max_epochs}"
+    deps:
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - ${vars.config_dir}/cluster.cfg
+    outputs:
+      - training/cluster/model-best
+  
+  - name: "prep-span-data"
+    help: "Prepare data for the span resolver component."
+    script:
+      - python scripts/prep_span_data.py --heads ${vars.heads} --model-path training/cluster/model-best/ --gpu ${vars.gpu_id} --input-path corpus/train.spacy --output-path corpus/spans.train.spacy --head-prefix coref_head_clusters --span-prefix coref_clusters
+      - python scripts/prep_span_data.py --heads ${vars.heads} --model-path training/cluster/model-best/ --gpu ${vars.gpu_id} --input-path corpus/dev.spacy --output-path corpus/spans.dev.spacy --head-prefix coref_head_clusters --span-prefix coref_clusters
+    deps:
+      - scripts/prep_span_data.py
+      - corpus/train.spacy
+      - corpus/dev.spacy
+      - training/cluster/model-best
+    outputs:
+      - corpus/spans.train.spacy
+      - corpus/spans.dev.spacy
+  
+  - name: "train-span-resolver"
+    help: "Train the span resolver component."
+    script:
+      - spacy train ${vars.config_dir}/span.cfg -c scripts/custom_functions.py -g ${vars.gpu_id} --paths.train corpus/spans.train.spacy --paths.dev corpus/spans.dev.spacy --training.max_epochs ${vars.max_epochs} --paths.transformer_source training/cluster/model-best -o training/span_resolver
+    deps:
+      - corpus/spans.train.spacy
+      - corpus/spans.dev.spacy
+      - ${vars.config_dir}/span.cfg
+      - training/cluster/model-best
+    outputs:
+      - training/span_resolver/model-best
+
+  - name: "assemble"
+    help: "Assemble all parts into a complete coref pipeline."
+    script:
+      - spacy assemble ${vars.config_dir}/coref.cfg training/coref
+    deps:
+      - training/cluster/model-best
+      - training/span_resolver/model-best
+      - ${vars.config_dir}/coref.cfg
+
+  - name: "eval"
+    help: "Evaluate model on the test set."
+    script:
+      - python scripts/run_eval.py --model training/coref --test-data corpus/test.spacy --gpu ${vars.gpu_id}
